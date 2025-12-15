@@ -1,0 +1,198 @@
+#!/bin/bash
+
+# Bank Report CLI
+# Generates PDF reports from Israeli bank/credit card statements
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VENV_DIR="$SCRIPT_DIR/venv"
+PYTHON_SCRIPT="$SCRIPT_DIR/bank_report.py"
+DATA_DIR="$SCRIPT_DIR/Data"
+OUTPUT_DIR="$SCRIPT_DIR/Output"
+CONFIG_FILE="$SCRIPT_DIR/.deploy_config"
+
+# Colors for output
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+RED='\033[0;31m'
+YELLOW='\033[0;33m'
+NC='\033[0m'
+
+# PythonAnywhere API base
+PA_API_BASE="https://www.pythonanywhere.com/api/v0/user"
+
+# Check if virtual environment exists, setup if not
+check_venv() {
+    if [ ! -d "$VENV_DIR" ]; then
+        echo -e "${BLUE}First time setup...${NC}"
+        python3 -m venv "$VENV_DIR"
+        source "$VENV_DIR/bin/activate"
+        pip install -q -r "$SCRIPT_DIR/requirements.txt"
+        echo -e "${GREEN}Setup complete!${NC}"
+    fi
+}
+
+# Show help
+show_help() {
+    echo ""
+    echo -e "${BLUE}Bank Report Generator${NC}"
+    echo ""
+    echo "Usage: bankreport <command>"
+    echo ""
+    echo "Commands:"
+    echo "  run       Analyze all files in Data/ folder and generate PDF in Output/"
+    echo "  deploy    Upload files to PythonAnywhere"
+    echo "  config    Configure PythonAnywhere credentials"
+    echo "  help      Show this help message"
+    echo ""
+}
+
+# Configure PythonAnywhere credentials
+configure_deploy() {
+    echo -e "${BLUE}Configure PythonAnywhere Deploy${NC}"
+    echo ""
+    echo "Get your API token from: pythonanywhere.com → Account → API Token"
+    echo ""
+    read -p "PythonAnywhere username: " pa_username
+    read -p "API Token: " pa_token
+
+    # Save to config file
+    echo "PA_USERNAME=$pa_username" > "$CONFIG_FILE"
+    echo "PA_TOKEN=$pa_token" >> "$CONFIG_FILE"
+    chmod 600 "$CONFIG_FILE"
+
+    echo ""
+    echo -e "${GREEN}Config saved!${NC} Run 'bankreport deploy' to upload files."
+}
+
+# Upload a single file to PythonAnywhere
+upload_file() {
+    local file_path="$1"
+    local remote_path="$2"
+    local username="$3"
+    local token="$4"
+
+    local url="$PA_API_BASE/$username/files/path/home/$username/$remote_path"
+
+    local response=$(curl -s -w "%{http_code}" -X POST \
+        -H "Authorization: Token $token" \
+        -F "content=@$file_path" \
+        "$url")
+
+    local http_code="${response: -3}"
+
+    if [ "$http_code" = "200" ] || [ "$http_code" = "201" ]; then
+        echo -e "  ${GREEN}✓${NC} $remote_path"
+        return 0
+    else
+        echo -e "  ${RED}✗${NC} $remote_path (HTTP $http_code)"
+        return 1
+    fi
+}
+
+# Deploy to PythonAnywhere
+deploy() {
+    # Check if config exists
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo -e "${RED}Error:${NC} No config found. Run 'bankreport config' first."
+        exit 1
+    fi
+
+    # Load config
+    source "$CONFIG_FILE"
+
+    if [ -z "$PA_USERNAME" ] || [ -z "$PA_TOKEN" ]; then
+        echo -e "${RED}Error:${NC} Invalid config. Run 'bankreport config' again."
+        exit 1
+    fi
+
+    echo -e "${BLUE}Deploying to PythonAnywhere...${NC}"
+    echo "Username: $PA_USERNAME"
+    echo ""
+
+    # Files to upload
+    local files=(
+        "bank_report.py"
+        "telegram_bot.py"
+        "requirements.txt"
+        "config.env"
+    )
+
+    local success=0
+    local failed=0
+
+    # Upload main files
+    for file in "${files[@]}"; do
+        if [ -f "$SCRIPT_DIR/$file" ]; then
+            if upload_file "$SCRIPT_DIR/$file" "$file" "$PA_USERNAME" "$PA_TOKEN"; then
+                ((success++))
+            else
+                ((failed++))
+            fi
+        else
+            echo -e "  ${YELLOW}?${NC} $file (not found)"
+        fi
+    done
+
+    # Upload fonts directory
+    if [ -d "$SCRIPT_DIR/fonts" ]; then
+        for font in "$SCRIPT_DIR/fonts"/*; do
+            if [ -f "$font" ]; then
+                local font_name=$(basename "$font")
+                if upload_file "$font" "fonts/$font_name" "$PA_USERNAME" "$PA_TOKEN"; then
+                    ((success++))
+                else
+                    ((failed++))
+                fi
+            fi
+        done
+    fi
+
+    echo ""
+    echo -e "${GREEN}Done!${NC} $success uploaded, $failed failed"
+
+    if [ $success -gt 0 ]; then
+        echo ""
+        echo -e "${YELLOW}Next:${NC} Restart the bot on PythonAnywhere:"
+        echo "  1. Open a Bash console"
+        echo "  2. Run: pkill -f telegram_bot.py"
+        echo "  3. Run: source venv/bin/activate && nohup python telegram_bot.py &"
+    fi
+}
+
+# Run the report generator
+run_report() {
+    check_venv
+
+    # Check if Data folder exists and has files
+    if [ ! -d "$DATA_DIR" ]; then
+        echo "Error: Data folder not found at $DATA_DIR"
+        exit 1
+    fi
+
+    # Create Output folder
+    mkdir -p "$OUTPUT_DIR"
+
+    # Run the report
+    source "$VENV_DIR/bin/activate"
+    python "$PYTHON_SCRIPT" "$DATA_DIR" -o "$OUTPUT_DIR/bank_report.pdf"
+}
+
+# Main
+case "$1" in
+    run)
+        run_report
+        ;;
+    deploy)
+        deploy
+        ;;
+    config)
+        configure_deploy
+        ;;
+    help|--help|-h|"")
+        show_help
+        ;;
+    *)
+        echo "Unknown command: $1"
+        show_help
+        ;;
+esac

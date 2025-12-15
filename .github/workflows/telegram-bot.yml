@@ -1,0 +1,30 @@
+name: Telegram Bot Handler
+
+on:
+  repository_dispatch:
+    types: [telegram-webhook]
+
+jobs:
+  handle-message:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install requests pandas openpyxl xlrd reportlab matplotlib pypdfium2
+
+      - name: Handle Telegram Update
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_UPDATE: ${{ toJson(github.event.client_payload.update) }}
+        run: |
+          python github_bot_handler.py

@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Local config
+config.env
+.deploy_config
+
+# Output files
+Output/
+*.zip
+
+# Data files (may contain sensitive info)
+Data/
+
+# Claude Code
+.claude/
