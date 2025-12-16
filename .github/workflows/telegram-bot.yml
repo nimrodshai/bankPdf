@@ -25,6 +25,7 @@ jobs:
       - name: Handle Telegram Update
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TELEGRAM_UPDATE: ${{ toJson(github.event.client_payload.update) }}
         run: |
           python github_bot_handler.py
