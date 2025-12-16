@@ -102,6 +102,14 @@ def add_user_file(chat_id: int, filename: str, file_id: str):
     gist_id = find_user_gist(chat_id)
     files = get_user_files(chat_id)
 
+    # Handle duplicate filenames by adding a suffix
+    original_filename = filename
+    counter = 1
+    while filename in files:
+        name, ext = os.path.splitext(original_filename)
+        filename = f"{name}_{counter}{ext}"
+        counter += 1
+
     # Add new file
     files[filename] = {'file_id': file_id, 'filename': filename}
 
