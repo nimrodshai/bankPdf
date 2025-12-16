@@ -71,10 +71,17 @@ def github_headers():
 def find_user_gist(chat_id: int):
     """Find existing gist for user"""
     response = requests.get(f'{GITHUB_API}/gists', headers=github_headers())
+    print(f"DEBUG find_user_gist: status={response.status_code}")
     if response.status_code == 200:
-        for gist in response.json():
+        gists = response.json()
+        print(f"DEBUG find_user_gist: found {len(gists)} gists")
+        for gist in gists:
+            print(f"DEBUG gist description: {gist['description']}")
             if gist['description'] == f'{GIST_PREFIX}{chat_id}':
+                print(f"DEBUG found matching gist: {gist['id']}")
                 return gist['id']
+    else:
+        print(f"DEBUG find_user_gist error: {response.text}")
     return None
 
 
@@ -124,13 +131,17 @@ def add_user_file(chat_id: int, filename: str, file_id: str):
 
     if gist_id:
         # Update existing gist
-        requests.patch(f'{GITHUB_API}/gists/{gist_id}',
+        print(f"DEBUG updating existing gist {gist_id} with {len(files)} files")
+        resp = requests.patch(f'{GITHUB_API}/gists/{gist_id}',
                       headers=github_headers(), json=gist_data)
+        print(f"DEBUG patch response: {resp.status_code} {resp.text[:200] if resp.text else ''}")
     else:
         # Create new gist
+        print(f"DEBUG creating new gist with {len(files)} files")
         gist_data['public'] = False
-        requests.post(f'{GITHUB_API}/gists',
+        resp = requests.post(f'{GITHUB_API}/gists',
                      headers=github_headers(), json=gist_data)
+        print(f"DEBUG post response: {resp.status_code} {resp.text[:200] if resp.text else ''}")
 
     return len(files)
 
