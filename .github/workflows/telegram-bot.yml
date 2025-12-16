@@ -20,7 +20,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests pandas openpyxl xlrd reportlab matplotlib pypdfium2
+          pip install -r requirements.txt requests
 
       - name: Handle Telegram Update
         env:
