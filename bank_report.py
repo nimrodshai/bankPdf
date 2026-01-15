@@ -1311,15 +1311,15 @@ class YearlyReportGenerator:
             offset = 200 if val >= 0 else -400
             va = 'bottom' if val >= 0 else 'top'
             ax.text(bar.get_x() + bar.get_width()/2, y_pos + offset,
-                    f'₪{val:,.0f}', ha='center', va=va, fontsize=8, fontweight='bold')
+                    f'₪{val:,.0f}', ha='center', va=va, fontsize=13, fontweight='bold')
 
         # Add horizontal line at 0
         ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
 
         # Labels and title
-        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=12,
+        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=16,
                      fontproperties=hebrew_font if hebrew_font else None)
-        ax.set_title(rtl(f'חיסכון חודשי - {self.date_range_str}'), fontsize=16, fontweight='bold',
+        ax.set_title(rtl(f'חיסכון חודשי - {self.date_range_str}'), fontsize=22, fontweight='bold',
                     fontproperties=hebrew_font if hebrew_font else None)
 
         # Set Hebrew font for x-axis labels
@@ -1328,14 +1328,14 @@ class YearlyReportGenerator:
                 label.set_fontproperties(hebrew_font)
 
         # Rotate x-axis labels for better readability
-        plt.xticks(rotation=45, ha='right')
+        plt.xticks(rotation=45, ha='right', fontsize=12)
 
         # Add total summary
         total_savings = savings.sum()
         savings_text = f'{rtl("סה״כ")}: ₪{total_savings:,.0f}'
         color = '#2ecc71' if total_savings >= 0 else '#e74c3c'
         ax.text(0.98, 0.95, savings_text, transform=ax.transAxes,
-               fontsize=14, fontweight='bold', ha='right', va='top', color=color,
+               fontsize=18, fontweight='bold', ha='right', va='top', color=color,
                fontproperties=hebrew_font if hebrew_font else None,
                bbox=dict(boxstyle='round', facecolor='white', edgecolor=color, alpha=0.8))
 
@@ -1389,26 +1389,26 @@ class YearlyReportGenerator:
             offset = 200 if val >= 0 else -400
             va = 'bottom' if val >= 0 else 'top'
             ax.text(bar.get_x() + bar.get_width()/2, y_pos + offset,
-                    f'₪{val:,.0f}', ha='center', va=va, fontsize=8, fontweight='bold')
+                    f'₪{val:,.0f}', ha='center', va=va, fontsize=13, fontweight='bold')
 
         # Add horizontal line at 0
         ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
 
         # Labels and title
-        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=12,
+        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=16,
                      fontproperties=hebrew_font if hebrew_font else None)
-        ax.set_title(rtl('חיסכון חצי-חודשי (16 לחודש עד 15 לחודש הבא)'), fontsize=16, fontweight='bold',
+        ax.set_title(rtl('חיסכון חצי-חודשי (16 לחודש עד 15 לחודש הבא)'), fontsize=22, fontweight='bold',
                     fontproperties=hebrew_font if hebrew_font else None)
 
         # Rotate x-axis labels for better readability
-        plt.xticks(rotation=45, ha='right')
+        plt.xticks(rotation=45, ha='right', fontsize=12)
 
         # Add total summary
         total_savings = savings.sum()
         savings_text = f'{rtl("סה״כ")}: ₪{total_savings:,.0f}'
         color = '#2ecc71' if total_savings >= 0 else '#e74c3c'
         ax.text(0.98, 0.95, savings_text, transform=ax.transAxes,
-               fontsize=14, fontweight='bold', ha='right', va='top', color=color,
+               fontsize=18, fontweight='bold', ha='right', va='top', color=color,
                fontproperties=hebrew_font if hebrew_font else None,
                bbox=dict(boxstyle='round', facecolor='white', edgecolor=color, alpha=0.8))
 
