@@ -1038,13 +1038,13 @@ class BankReportGenerator:
 
 
 class YearlyReportGenerator:
-    """Generate yearly report with monthly savings/loss chart."""
+    """Generate report with monthly savings/loss chart for any date range."""
 
-    def __init__(self, output_file: str = None, year: int = None):
+    def __init__(self, output_file: str = None):
         self.output_file = output_file or '/tmp/yearly_report.pdf'
         self.df = None
-        self.year = year
         self.monthly_data = None
+        self.date_range_str = None
 
     def set_data(self, df):
         """Set the transaction dataframe."""
@@ -1090,23 +1090,33 @@ class YearlyReportGenerator:
             self.df['month'] = self.df['date'].dt.month
             self.df['year'] = self.df['date'].dt.year
 
-        # Determine the year from data if not specified
-        if self.year is None and 'year' in self.df.columns:
-            self.year = self.df['year'].mode().iloc[0] if len(self.df) > 0 else datetime.now().year
-
         return self
 
     def calculate_monthly_summary(self):
-        """Calculate monthly savings (income - expenses) for each month."""
+        """Calculate monthly savings (income - expenses) for all months in the data."""
         monthly_data = []
 
-        for month in range(1, 13):
-            # Get the last day of the month
-            _, last_day = calendar.monthrange(self.year, month)
+        # Find the date range in the data
+        min_date = self.df['date'].min()
+        max_date = self.df['date'].max()
 
-            # Filter transactions for this month (1st to last day)
-            start_date = pd.Timestamp(year=self.year, month=month, day=1)
-            end_date = pd.Timestamp(year=self.year, month=month, day=last_day, hour=23, minute=59, second=59)
+        # Create date range string for title
+        self.date_range_str = f"{HEBREW_MONTHS[min_date.month]} {min_date.year} - {HEBREW_MONTHS[max_date.month]} {max_date.year}"
+
+        # Generate list of all year-month combinations in range
+        current = pd.Timestamp(year=min_date.year, month=min_date.month, day=1)
+        end = pd.Timestamp(year=max_date.year, month=max_date.month, day=1)
+
+        while current <= end:
+            year = current.year
+            month = current.month
+
+            # Get the last day of the month
+            _, last_day = calendar.monthrange(year, month)
+
+            # Filter transactions for this month
+            start_date = pd.Timestamp(year=year, month=month, day=1)
+            end_date = pd.Timestamp(year=year, month=month, day=last_day, hour=23, minute=59, second=59)
 
             month_df = self.df[
                 (self.df['date'] >= start_date) &
@@ -1122,14 +1132,25 @@ class YearlyReportGenerator:
 
             savings = income - expenses
 
+            # Create label like "ינואר 24" or "ינואר" if single year
+            month_label = f"{HEBREW_MONTHS[month]} {str(year)[2:]}"
+
             monthly_data.append({
+                'year': year,
                 'month': month,
                 'month_name': HEBREW_MONTHS[month],
+                'month_label': month_label,
                 'income': income,
                 'expenses': expenses,
                 'savings': savings,
                 'transaction_count': len(month_df)
             })
+
+            # Move to next month
+            if month == 12:
+                current = pd.Timestamp(year=year + 1, month=1, day=1)
+            else:
+                current = pd.Timestamp(year=year, month=month + 1, day=1)
 
         self.monthly_data = pd.DataFrame(monthly_data)
         return self
@@ -1157,9 +1178,12 @@ class YearlyReportGenerator:
                 except:
                     continue
 
-        fig, ax = plt.subplots(figsize=(14, 7))
+        # Adjust figure width based on number of months
+        num_months = len(self.monthly_data)
+        fig_width = max(14, num_months * 1.2)
+        fig, ax = plt.subplots(figsize=(fig_width, 7))
 
-        months = [rtl(name) for name in self.monthly_data['month_name']]
+        months = [rtl(label) for label in self.monthly_data['month_label']]
         savings = self.monthly_data['savings'].values
 
         # Color bars based on positive/negative
@@ -1173,7 +1197,7 @@ class YearlyReportGenerator:
             offset = 200 if val >= 0 else -400
             va = 'bottom' if val >= 0 else 'top'
             ax.text(bar.get_x() + bar.get_width()/2, y_pos + offset,
-                    f'₪{val:,.0f}', ha='center', va=va, fontsize=9, fontweight='bold')
+                    f'₪{val:,.0f}', ha='center', va=va, fontsize=8, fontweight='bold')
 
         # Add horizontal line at 0
         ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
@@ -1181,7 +1205,7 @@ class YearlyReportGenerator:
         # Labels and title
         ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=12,
                      fontproperties=hebrew_font if hebrew_font else None)
-        ax.set_title(rtl(f'חיסכון חודשי - {self.year}'), fontsize=16, fontweight='bold',
+        ax.set_title(rtl(f'חיסכון חודשי - {self.date_range_str}'), fontsize=16, fontweight='bold',
                     fontproperties=hebrew_font if hebrew_font else None)
 
         # Set Hebrew font for x-axis labels
@@ -1194,7 +1218,7 @@ class YearlyReportGenerator:
 
         # Add total summary
         total_savings = savings.sum()
-        savings_text = f'{rtl("סה״כ שנתי")}: ₪{total_savings:,.0f}'
+        savings_text = f'{rtl("סה״כ")}: ₪{total_savings:,.0f}'
         color = '#2ecc71' if total_savings >= 0 else '#e74c3c'
         ax.text(0.98, 0.95, savings_text, transform=ax.transAxes,
                fontsize=14, fontweight='bold', ha='right', va='top', color=color,
@@ -1243,7 +1267,7 @@ class YearlyReportGenerator:
         elements = []
 
         # Title
-        elements.append(Paragraph(rtl(f'דוח שנתי - {self.year}'), title_style))
+        elements.append(Paragraph(rtl(f'דוח חיסכון - {self.date_range_str}'), title_style))
         elements.append(Spacer(1, 20))
 
         # Add chart
@@ -1263,10 +1287,10 @@ class YearlyReportGenerator:
                 savings_str,
                 f'₪{row["expenses"]:,.0f}',
                 f'₪{row["income"]:,.0f}',
-                rtl(row['month_name'])
+                rtl(row['month_label'])
             ])
 
-        # Add yearly totals
+        # Add totals
         total_income = self.monthly_data['income'].sum()
         total_expenses = self.monthly_data['expenses'].sum()
         total_savings = self.monthly_data['savings'].sum()
@@ -1275,7 +1299,7 @@ class YearlyReportGenerator:
             f'₪{total_savings:,.0f}',
             f'₪{total_expenses:,.0f}',
             f'₪{total_income:,.0f}',
-            rtl('סה"כ שנתי')
+            rtl('סה"כ')
         ])
 
         table = Table(table_data, colWidths=[4*cm, 4*cm, 4*cm, 4*cm])

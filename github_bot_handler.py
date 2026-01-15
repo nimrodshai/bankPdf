@@ -292,13 +292,14 @@ def handle_report(chat_id: int):
 
             # Send PDF back
             caption = (
-                f"הדוח שלך מוכן! ({generator.year})\n"
+                f"הדוח שלך מוכן!\n"
+                f"{generator.date_range_str}\n"
                 f"עובדו {len(files)} קבצים\n\n"
                 f"סה\"כ הכנסות: {total_income:,.0f} ש\"ח\n"
                 f"סה\"כ הוצאות: {total_expenses:,.0f} ש\"ח\n"
                 f"סה\"כ חיסכון: {total_savings:,.0f} ש\"ח"
             )
-            send_document(chat_id, output_path, f'bank_report_{generator.year}.pdf', caption)
+            send_document(chat_id, output_path, 'bank_report.pdf', caption)
 
             # Clear files after successful report
             clear_user_files(chat_id)
