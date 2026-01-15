@@ -497,16 +497,19 @@ def parse_pdf_bank_statement_text(file_path):
                 if len(numbers) < 2:
                     continue
 
-                # First number with ₪ is balance
-                balance_match = re.search(r'₪([\d,]+\.\d{2})', line)
+                # First number with ₪ is balance (may be negative)
+                balance_match = re.search(r'₪(-?[\d,]+\.\d{2})', line)
                 if not balance_match:
                     continue
 
                 balance_str = balance_match.group(1)
-                balance = float(balance_str.replace(',', ''))
+                balance = float(balance_str.replace(',', ''))  # Handles negative values correctly
+
+                # Get absolute balance string for comparison (without minus sign)
+                balance_str_abs = balance_str.lstrip('-')
 
                 # Find amounts that are not the balance
-                amounts = [n for n in numbers if n != balance_str]
+                amounts = [n for n in numbers if n != balance_str_abs]
 
                 if not amounts:
                     continue
@@ -517,7 +520,7 @@ def parse_pdf_bank_statement_text(file_path):
                 # Extract description - remove date, numbers, and ₪ symbol
                 description = line
                 description = re.sub(r'\d{1,2}/\d{1,2}/\d{4}', '', description)
-                description = re.sub(r'₪[\d,]+\.\d{2}', '', description)
+                description = re.sub(r'₪-?[\d,]+\.\d{2}', '', description)  # Handle negative balances
                 description = re.sub(r'[\d,]+\.\d{2}', '', description)
                 description = description.replace('##', '').strip()
                 description = re.sub(r'\s+', ' ', description).strip()
