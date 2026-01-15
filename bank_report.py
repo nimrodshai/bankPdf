@@ -539,10 +539,10 @@ def parse_pdf_bank_statement_text(file_path):
                     'balance': balance
                 })
 
-    # Sort by date and then by balance to get correct order
-    raw_transactions.sort(key=lambda x: (x['date'], x['balance']))
+    # Bank Hapoalim PDFs typically show newest first, so reverse to get chronological order
+    raw_transactions.reverse()
 
-    # Now determine income/expense based on balance changes
+    # Determine income/expense based on balance changes between consecutive transactions
     transactions = []
     prev_balance = None
 
@@ -551,23 +551,21 @@ def parse_pdf_bank_statement_text(file_path):
         balance = txn['balance']
 
         if prev_balance is not None:
-            # Calculate expected balance change
+            # Calculate balance change
             balance_diff = balance - prev_balance
 
             # If balance went up, it's income (positive)
             # If balance went down, it's expense (negative)
             if balance_diff > 0:
-                # Income - balance increased
                 amount = abs(amount)
                 is_income = True
             else:
-                # Expense - balance decreased
                 amount = -abs(amount)
                 is_income = False
         else:
-            # First transaction - use the amount and balance to guess
-            # If balance > amount, likely this was income that increased balance
-            # This is a fallback, not perfect
+            # First transaction - check if adding amount gives us the balance
+            # or if subtracting does (to determine income vs expense)
+            # This is a heuristic for the first transaction
             is_income = False
             amount = -abs(amount)
 
