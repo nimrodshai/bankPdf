@@ -458,8 +458,10 @@ def parse_pdf_bank_statement_text(file_path):
     The PDF text format (RTL, so appears reversed):
     ₪Balance Amount Description Date
     e.g.: ₪6,623.99 806.95 טקנבמ הכישמ 30/11/2025
+
+    Uses balance-based detection: if balance went up it's income, if down it's expense.
     """
-    transactions = []
+    raw_transactions = []
 
     with pdfplumber.open(file_path) as pdf:
         for page in pdf.pages:
@@ -492,21 +494,21 @@ def parse_pdf_bank_statement_text(file_path):
                 if len(numbers) < 2:
                     continue
 
-                # First number with ₪ is balance, skip it
-                # Second number is the transaction amount (debit or credit)
-                # Remove balance (first number after ₪)
+                # First number with ₪ is balance
                 balance_match = re.search(r'₪([\d,]+\.\d{2})', line)
-                if balance_match:
-                    balance_str = balance_match.group(1)
-                    # Find amounts that are not the balance
-                    amounts = [n for n in numbers if n != balance_str]
-                else:
-                    amounts = numbers[1:]  # Skip first as it's likely balance
+                if not balance_match:
+                    continue
+
+                balance_str = balance_match.group(1)
+                balance = float(balance_str.replace(',', ''))
+
+                # Find amounts that are not the balance
+                amounts = [n for n in numbers if n != balance_str]
 
                 if not amounts:
                     continue
 
-                # Get the transaction amount
+                # Get the transaction amount (absolute value for now)
                 amount = float(amounts[0].replace(',', ''))
 
                 # Extract description - remove date, numbers, and ₪ symbol
@@ -530,23 +532,56 @@ def parse_pdf_bank_statement_text(file_path):
                 if pd.isna(date):
                     continue
 
-                # Determine if income or expense based on Hebrew keywords
-                # Now description is in proper logical order
-                income_keywords = ['משכורת', 'קצבת ילדים', 'קצבת', 'זכות', 'העברה לזכות']
-                is_income = any(keyword in description for keyword in income_keywords)
-
-                if not is_income:
-                    amount = -amount
-
-                transaction = {
+                raw_transactions.append({
                     'date': date,
                     'description': description,
                     'amount': amount,
-                    'is_income': is_income
-                }
+                    'balance': balance
+                })
 
-                if transaction['amount'] != 0:
-                    transactions.append(transaction)
+    # Sort by date and then by balance to get correct order
+    raw_transactions.sort(key=lambda x: (x['date'], x['balance']))
+
+    # Now determine income/expense based on balance changes
+    transactions = []
+    prev_balance = None
+
+    for txn in raw_transactions:
+        amount = txn['amount']
+        balance = txn['balance']
+
+        if prev_balance is not None:
+            # Calculate expected balance change
+            balance_diff = balance - prev_balance
+
+            # If balance went up, it's income (positive)
+            # If balance went down, it's expense (negative)
+            if balance_diff > 0:
+                # Income - balance increased
+                amount = abs(amount)
+                is_income = True
+            else:
+                # Expense - balance decreased
+                amount = -abs(amount)
+                is_income = False
+        else:
+            # First transaction - use the amount and balance to guess
+            # If balance > amount, likely this was income that increased balance
+            # This is a fallback, not perfect
+            is_income = False
+            amount = -abs(amount)
+
+        prev_balance = balance
+
+        transaction = {
+            'date': txn['date'],
+            'description': txn['description'],
+            'amount': amount,
+            'is_income': is_income
+        }
+
+        if transaction['amount'] != 0:
+            transactions.append(transaction)
 
     return transactions
 
