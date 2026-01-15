@@ -464,12 +464,15 @@ def parse_pdf_bank_statement_text(file_path):
     raw_transactions = []
 
     with pdfplumber.open(file_path) as pdf:
-        for page in pdf.pages:
+        print(f"DEBUG: PDF has {len(pdf.pages)} pages")
+        for page_num, page in enumerate(pdf.pages, 1):
             text = page.extract_text()
             if not text:
+                print(f"DEBUG: Page {page_num} - no text extracted")
                 continue
 
             lines = text.split('\n')
+            page_transactions_before = len(raw_transactions)
 
             for line in lines:
                 # Skip header lines and empty lines
@@ -538,6 +541,14 @@ def parse_pdf_bank_statement_text(file_path):
                     'amount': amount,
                     'balance': balance
                 })
+
+            page_transactions = len(raw_transactions) - page_transactions_before
+            if page_transactions > 0:
+                print(f"DEBUG: Page {page_num} - found {page_transactions} transactions")
+            else:
+                # Show first few lines to debug why no transactions found
+                sample_lines = [l for l in lines[:10] if l.strip()]
+                print(f"DEBUG: Page {page_num} - 0 transactions. Sample: {sample_lines[:3]}")
 
     print(f"DEBUG: Extracted {len(raw_transactions)} raw transactions from PDF")
     if raw_transactions:
