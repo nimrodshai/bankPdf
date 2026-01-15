@@ -1437,18 +1437,18 @@ class YearlyReportGenerator:
             'HebrewTitle',
             parent=styles['Heading1'],
             fontName=HEBREW_FONT,
-            fontSize=20,
+            fontSize=28,
             alignment=TA_CENTER,
-            spaceAfter=20
+            spaceAfter=25
         )
 
         subtitle_style = ParagraphStyle(
             'Subtitle',
             parent=styles['Heading2'],
             fontName=HEBREW_FONT,
-            fontSize=14,
+            fontSize=20,
             alignment=TA_CENTER,
-            spaceAfter=10
+            spaceAfter=15
         )
 
         elements = []
@@ -1494,19 +1494,19 @@ class YearlyReportGenerator:
         # Build style list with conditional formatting for savings column
         style_commands = [
             ('FONTNAME', (0, 0), (-1, -1), HEBREW_FONT),
-            ('FONTSIZE', (0, 0), (-1, -1), 11),
+            ('FONTSIZE', (0, 0), (-1, -1), 13),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
             ('GRID', (0, 0), (-1, -1), 1, colors.black),
-            ('TOPPADDING', (0, 0), (-1, -1), 8),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
             # Header row
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('FONTSIZE', (0, 0), (-1, 0), 15),
             # Total row
             ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#D9E2F3')),
-            ('FONTSIZE', (0, -1), (-1, -1), 12),
+            ('FONTSIZE', (0, -1), (-1, -1), 15),
         ]
 
         # Color savings cells based on positive/negative
@@ -1567,19 +1567,19 @@ class YearlyReportGenerator:
             # Build style list for half-month table
             half_style_commands = [
                 ('FONTNAME', (0, 0), (-1, -1), HEBREW_FONT),
-                ('FONTSIZE', (0, 0), (-1, -1), 11),
+                ('FONTSIZE', (0, 0), (-1, -1), 13),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('TOPPADDING', (0, 0), (-1, -1), 8),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                ('TOPPADDING', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
                 # Header row - different color for half-month
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#7030A0')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                ('FONTSIZE', (0, 0), (-1, 0), 15),
                 # Total row
                 ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E2D5F0')),
-                ('FONTSIZE', (0, -1), (-1, -1), 12),
+                ('FONTSIZE', (0, -1), (-1, -1), 15),
             ]
 
             # Color savings cells based on positive/negative
@@ -1619,15 +1619,16 @@ class YearlyReportGenerator:
 
             comparison_style = [
                 ('FONTNAME', (0, 0), (-1, -1), HEBREW_FONT),
-                ('FONTSIZE', (0, 0), (-1, -1), 12),
+                ('FONTSIZE', (0, 0), (-1, -1), 14),
                 ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                 ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
                 ('GRID', (0, 0), (-1, -1), 1, colors.black),
-                ('TOPPADDING', (0, 0), (-1, -1), 10),
-                ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                ('TOPPADDING', (0, 0), (-1, -1), 12),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
                 # Header row
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#333333')),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTSIZE', (0, 0), (-1, 0), 15),
                 # Monthly column header
                 ('BACKGROUND', (2, 0), (2, 0), colors.HexColor('#4472C4')),
                 # Half-monthly column header
