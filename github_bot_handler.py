@@ -16,6 +16,7 @@ from pathlib import Path
 # Import bank report functions
 from bank_report import (
     BankReportGenerator,
+    YearlyReportGenerator,
     detect_statement_format,
     parse_bank_account_statement,
     parse_credit_card_statement,
@@ -163,7 +164,7 @@ def handle_start(chat_id: int):
         "/help - עזרה\n"
         "/clear - נקה קבצים שהועלו\n"
         "/status - כמה קבצים הועלו\n"
-        "/report - הפק דוח PDF\n\n"
+        "/report - הפק דוח PDF עם גרף חיסכון חודשי\n\n"
         "שלח לי קבצי xlsx או pdf מהבנק ואז הקלד /report"
     )
 
@@ -172,9 +173,9 @@ def handle_help(chat_id: int):
     """Handle /help command"""
     send_message(chat_id,
         "איך להשתמש:\n\n"
-        "1. שלח קובץ xlsx או pdf מהבנק\n"
-        "2. שלח עוד קבצים אם יש\n"
-        "3. הקלד /report להפקת הדוח\n\n"
+        "1. שלח קבצי xlsx או pdf מהבנק (שנה שלמה)\n"
+        "2. הקלד /report להפקת הדוח\n"
+        "3. קבל PDF עם גרף חיסכון/הפסד לכל חודש\n\n"
         "פקודות נוספות:\n"
         "/clear - נקה קבצים שהועלו\n"
         "/status - כמה קבצים הועלו"
@@ -231,14 +232,10 @@ def handle_report(chat_id: int):
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             all_dataframes = []
-            first_file_path = None
 
             for filename, file_info in files.items():
                 file_path = os.path.join(temp_dir, filename)
                 download_file(file_info['file_id'], file_path)
-
-                if first_file_path is None:
-                    first_file_path = file_path
 
                 # Process file
                 file_ext = Path(file_path).suffix.lower()
@@ -281,30 +278,27 @@ def handle_report(chat_id: int):
             # Merge all dataframes
             merged_df = pd.concat(all_dataframes, ignore_index=True)
 
-            # Generate PDF
+            # Generate yearly PDF with monthly savings chart
             output_path = os.path.join(temp_dir, 'bank_report.pdf')
 
-            generator = BankReportGenerator(first_file_path, output_path)
+            generator = YearlyReportGenerator(output_file=output_path)
             generator.df = merged_df
-            generator.statement_type = 'bank_account'
+            generator.process()
 
-            (generator
-             .normalize_columns()
-             .parse_dates()
-             .categorize_transactions()
-             .calculate_summary()
-             .create_charts()
-             .generate_pdf())
+            # Calculate totals for caption
+            total_income = generator.monthly_data['income'].sum()
+            total_expenses = generator.monthly_data['expenses'].sum()
+            total_savings = generator.monthly_data['savings'].sum()
 
             # Send PDF back
             caption = (
-                f"הדוח שלך מוכן!\n"
+                f"הדוח שלך מוכן! ({generator.year})\n"
                 f"עובדו {len(files)} קבצים\n\n"
-                f"הכנסות: {generator.total_income:,.0f} ש\"ח\n"
-                f"הוצאות: {generator.total_expenses:,.0f} ש\"ח\n"
-                f"מאזן: {generator.balance:,.0f} ש\"ח"
+                f"סה\"כ הכנסות: {total_income:,.0f} ש\"ח\n"
+                f"סה\"כ הוצאות: {total_expenses:,.0f} ש\"ח\n"
+                f"סה\"כ חיסכון: {total_savings:,.0f} ש\"ח"
             )
-            send_document(chat_id, output_path, 'bank_report.pdf', caption)
+            send_document(chat_id, output_path, f'bank_report_{generator.year}.pdf', caption)
 
             # Clear files after successful report
             clear_user_files(chat_id)

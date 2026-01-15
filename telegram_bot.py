@@ -14,6 +14,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 # Import our bank report generator
 from bank_report import (
     BankReportGenerator,
+    YearlyReportGenerator,
     detect_statement_format,
     parse_bank_account_statement,
     parse_credit_card_statement,
@@ -43,8 +44,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/start - התחל מחדש\n"
         "/help - עזרה\n"
         "/clear - נקה קבצים שהועלו\n"
-        "/report - הפק דוח PDF\n\n"
-        "פשוט שלח לי קבצי xlsx או pdf מהבנק ואז הקלד /report"
+        "/report - הפק דוח PDF חודשי\n"
+        "/yearly - הפק דוח שנתי עם גרף חיסכון חודשי\n\n"
+        "פשוט שלח לי קבצי xlsx או pdf מהבנק ואז הקלד /report או /yearly"
     )
 
 
@@ -53,8 +55,11 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "📋 איך להשתמש:\n\n"
         "1. שלח קובץ xlsx או pdf אחד או יותר מהבנק\n"
-        "2. הקלד /report להפקת הדוח\n"
+        "2. הקלד /report לדוח חודשי או /yearly לדוח שנתי\n"
         "3. קבל PDF עם סיכום הכנסות והוצאות\n\n"
+        "סוגי דוחות:\n"
+        "/report - דוח חודשי עם פירוט עסקאות\n"
+        "/yearly - דוח שנתי עם גרף חיסכון/הפסד לכל חודש\n\n"
         "פקודות נוספות:\n"
         "/clear - נקה את הקבצים שהועלו\n"
         "/status - כמה קבצים הועלו"
@@ -199,6 +204,88 @@ async def generate_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"❌ שגיאה בהפקת הדוח: {str(e)}")
 
 
+async def generate_yearly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /yearly command - generate yearly PDF with monthly savings chart"""
+    user_id = update.effective_user.id
+
+    if user_id not in user_files or not user_files[user_id]:
+        await update.message.reply_text("❌ לא נמצאו קבצים. שלח קבצי xlsx או pdf תחילה")
+        return
+
+    await update.message.reply_text("⏳ מעבד את הקבצים לדוח שנתי...")
+
+    try:
+        # Load and merge all files
+        all_dataframes = []
+        for file_path in user_files[user_id]:
+            file_ext = Path(file_path).suffix.lower()
+            if file_ext == '.pdf':
+                df = parse_pdf_bank_statement(file_path)
+            elif file_ext == '.xlsx':
+                df_raw = pd.read_excel(file_path, header=None)
+                stmt_format, _ = detect_statement_format(df_raw)
+
+                if stmt_format == 'credit_card':
+                    df = parse_credit_card_statement(file_path)
+                elif stmt_format == 'bank_account':
+                    df = parse_bank_account_statement(file_path)
+                else:
+                    continue
+            elif file_ext == '.csv':
+                for encoding in ['utf-8', 'windows-1255', 'iso-8859-8']:
+                    try:
+                        df = pd.read_csv(file_path, encoding=encoding)
+                        break
+                    except UnicodeDecodeError:
+                        continue
+            else:
+                continue
+
+            all_dataframes.append(df)
+
+        if not all_dataframes:
+            await update.message.reply_text("❌ לא הצלחתי לקרוא את הקבצים")
+            return
+
+        # Merge data
+        merged_df = pd.concat(all_dataframes, ignore_index=True)
+
+        # Generate yearly PDF
+        output_path = tempfile.mktemp(suffix='.pdf')
+
+        generator = YearlyReportGenerator(output_file=output_path)
+        generator.df = merged_df
+        generator.process()
+
+        # Calculate totals for caption
+        total_income = generator.monthly_data['income'].sum()
+        total_expenses = generator.monthly_data['expenses'].sum()
+        total_savings = generator.monthly_data['savings'].sum()
+
+        # Send PDF back to user
+        await update.message.reply_document(
+            document=open(output_path, 'rb'),
+            filename=f'yearly_report_{generator.year}.pdf',
+            caption=f"📊 הדוח השנתי שלך מוכן! ({generator.year})\n\n"
+                    f"סה\"כ הכנסות: ₪{total_income:,.0f}\n"
+                    f"סה\"כ הוצאות: ₪{total_expenses:,.0f}\n"
+                    f"סה\"כ חיסכון: ₪{total_savings:,.0f}"
+        )
+
+        # Clean up
+        os.remove(output_path)
+        for file_path in user_files[user_id]:
+            try:
+                os.remove(file_path)
+            except:
+                pass
+        del user_files[user_id]
+
+    except Exception as e:
+        logger.error(f"Error generating yearly report: {e}")
+        await update.message.reply_text(f"❌ שגיאה בהפקת הדוח השנתי: {str(e)}")
+
+
 def main():
     """Start the bot"""
     if not BOT_TOKEN:
@@ -214,6 +301,7 @@ def main():
     application.add_handler(CommandHandler("clear", clear_files))
     application.add_handler(CommandHandler("status", status))
     application.add_handler(CommandHandler("report", generate_report))
+    application.add_handler(CommandHandler("yearly", generate_yearly_report))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
 
     # Start polling

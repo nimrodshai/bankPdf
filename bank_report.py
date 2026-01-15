@@ -33,6 +33,7 @@ import os
 import sys
 import argparse
 from pathlib import Path
+import calendar
 
 
 def rtl(text):
@@ -1000,6 +1001,300 @@ class BankReportGenerator:
                 .categorize_transactions()
                 .calculate_summary()
                 .create_charts()
+                .generate_pdf())
+
+
+class YearlyReportGenerator:
+    """Generate yearly report with monthly savings/loss chart."""
+
+    def __init__(self, output_file: str = None, year: int = None):
+        self.output_file = output_file or '/tmp/yearly_report.pdf'
+        self.df = None
+        self.year = year
+        self.monthly_data = None
+
+    def set_data(self, df):
+        """Set the transaction dataframe."""
+        self.df = df
+        return self
+
+    def normalize_columns(self):
+        """Normalize column names to standard format."""
+        column_mappings = {
+            'תאריך': 'date',
+            'תאריך ערך': 'date',
+            'תאריך פעולה': 'date',
+            'סכום': 'amount',
+            'סכום חיוב': 'amount',
+            'זכות': 'credit',
+            'חובה': 'debit',
+            'תיאור': 'description',
+            'פרטים': 'description',
+            'שם בית עסק': 'description',
+        }
+
+        new_columns = {}
+        for col in self.df.columns:
+            col_str = str(col).strip()
+            for heb, eng in column_mappings.items():
+                if heb in col_str:
+                    new_columns[col] = eng
+                    break
+
+        if new_columns:
+            self.df = self.df.rename(columns=new_columns)
+
+        if 'credit' in self.df.columns and 'debit' in self.df.columns:
+            self.df['amount'] = self.df['credit'].fillna(0) - self.df['debit'].fillna(0)
+
+        return self
+
+    def parse_dates(self):
+        """Parse date column."""
+        if 'date' in self.df.columns:
+            self.df['date'] = pd.to_datetime(self.df['date'], dayfirst=True, errors='coerce')
+            self.df = self.df.dropna(subset=['date'])
+            self.df['month'] = self.df['date'].dt.month
+            self.df['year'] = self.df['date'].dt.year
+
+        # Determine the year from data if not specified
+        if self.year is None and 'year' in self.df.columns:
+            self.year = self.df['year'].mode().iloc[0] if len(self.df) > 0 else datetime.now().year
+
+        return self
+
+    def calculate_monthly_summary(self):
+        """Calculate monthly savings (income - expenses) for each month."""
+        monthly_data = []
+
+        for month in range(1, 13):
+            # Get the last day of the month
+            _, last_day = calendar.monthrange(self.year, month)
+
+            # Filter transactions for this month (1st to last day)
+            start_date = pd.Timestamp(year=self.year, month=month, day=1)
+            end_date = pd.Timestamp(year=self.year, month=month, day=last_day, hour=23, minute=59, second=59)
+
+            month_df = self.df[
+                (self.df['date'] >= start_date) &
+                (self.df['date'] <= end_date)
+            ]
+
+            if len(month_df) > 0:
+                income = month_df[month_df['amount'] > 0]['amount'].sum()
+                expenses = abs(month_df[month_df['amount'] < 0]['amount'].sum())
+            else:
+                income = 0
+                expenses = 0
+
+            savings = income - expenses
+
+            monthly_data.append({
+                'month': month,
+                'month_name': HEBREW_MONTHS[month],
+                'income': income,
+                'expenses': expenses,
+                'savings': savings,
+                'transaction_count': len(month_df)
+            })
+
+        self.monthly_data = pd.DataFrame(monthly_data)
+        return self
+
+    def create_yearly_chart(self):
+        """Create bar chart showing monthly savings/loss."""
+        if not HAS_MATPLOTLIB:
+            self.chart_path = None
+            return self
+
+        # Set up Hebrew font
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        hebrew_font = None
+        font_paths = [
+            os.path.join(script_dir, 'fonts', 'Arial.ttf'),
+            os.path.join(script_dir, 'fonts', 'NotoSansHebrew-Regular.ttf'),
+            '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+            '/System/Library/Fonts/ArialHB.ttc',
+        ]
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                try:
+                    hebrew_font = font_manager.FontProperties(fname=font_path)
+                    break
+                except:
+                    continue
+
+        fig, ax = plt.subplots(figsize=(14, 7))
+
+        months = [rtl(name) for name in self.monthly_data['month_name']]
+        savings = self.monthly_data['savings'].values
+
+        # Color bars based on positive/negative
+        colors = ['#2ecc71' if s >= 0 else '#e74c3c' for s in savings]
+
+        bars = ax.bar(months, savings, color=colors, width=0.7, edgecolor='black', linewidth=0.5)
+
+        # Add value labels on bars
+        for bar, val in zip(bars, savings):
+            y_pos = bar.get_height()
+            offset = 200 if val >= 0 else -400
+            va = 'bottom' if val >= 0 else 'top'
+            ax.text(bar.get_x() + bar.get_width()/2, y_pos + offset,
+                    f'₪{val:,.0f}', ha='center', va=va, fontsize=9, fontweight='bold')
+
+        # Add horizontal line at 0
+        ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
+
+        # Labels and title
+        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=12,
+                     fontproperties=hebrew_font if hebrew_font else None)
+        ax.set_title(rtl(f'חיסכון חודשי - {self.year}'), fontsize=16, fontweight='bold',
+                    fontproperties=hebrew_font if hebrew_font else None)
+
+        # Set Hebrew font for x-axis labels
+        if hebrew_font:
+            for label in ax.get_xticklabels():
+                label.set_fontproperties(hebrew_font)
+
+        # Rotate x-axis labels for better readability
+        plt.xticks(rotation=45, ha='right')
+
+        # Add total summary
+        total_savings = savings.sum()
+        savings_text = f'{rtl("סה״כ שנתי")}: ₪{total_savings:,.0f}'
+        color = '#2ecc71' if total_savings >= 0 else '#e74c3c'
+        ax.text(0.98, 0.95, savings_text, transform=ax.transAxes,
+               fontsize=14, fontweight='bold', ha='right', va='top', color=color,
+               fontproperties=hebrew_font if hebrew_font else None,
+               bbox=dict(boxstyle='round', facecolor='white', edgecolor=color, alpha=0.8))
+
+        plt.tight_layout()
+
+        self.chart_path = '/tmp/yearly_chart.png'
+        plt.savefig(self.chart_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+
+        return self
+
+    def generate_pdf(self):
+        """Generate the yearly PDF report."""
+        doc = SimpleDocTemplate(
+            self.output_file,
+            pagesize=A4,
+            rightMargin=1.5*cm,
+            leftMargin=1.5*cm,
+            topMargin=2*cm,
+            bottomMargin=2*cm
+        )
+
+        styles = getSampleStyleSheet()
+
+        title_style = ParagraphStyle(
+            'HebrewTitle',
+            parent=styles['Heading1'],
+            fontName=HEBREW_FONT,
+            fontSize=20,
+            alignment=TA_CENTER,
+            spaceAfter=20
+        )
+
+        subtitle_style = ParagraphStyle(
+            'Subtitle',
+            parent=styles['Heading2'],
+            fontName=HEBREW_FONT,
+            fontSize=14,
+            alignment=TA_CENTER,
+            spaceAfter=10
+        )
+
+        elements = []
+
+        # Title
+        elements.append(Paragraph(rtl(f'דוח שנתי - {self.year}'), title_style))
+        elements.append(Spacer(1, 20))
+
+        # Add chart
+        if self.chart_path and os.path.exists(self.chart_path):
+            elements.append(Image(self.chart_path, width=17*cm, height=8.5*cm))
+            elements.append(Spacer(1, 25))
+
+        # Monthly summary table
+        elements.append(Paragraph(rtl('סיכום חודשי'), subtitle_style))
+        elements.append(Spacer(1, 10))
+
+        table_data = [[rtl('חיסכון/הפסד'), rtl('הוצאות'), rtl('הכנסות'), rtl('חודש')]]
+
+        for _, row in self.monthly_data.iterrows():
+            savings_str = f'₪{row["savings"]:,.0f}'
+            table_data.append([
+                savings_str,
+                f'₪{row["expenses"]:,.0f}',
+                f'₪{row["income"]:,.0f}',
+                rtl(row['month_name'])
+            ])
+
+        # Add yearly totals
+        total_income = self.monthly_data['income'].sum()
+        total_expenses = self.monthly_data['expenses'].sum()
+        total_savings = self.monthly_data['savings'].sum()
+
+        table_data.append([
+            f'₪{total_savings:,.0f}',
+            f'₪{total_expenses:,.0f}',
+            f'₪{total_income:,.0f}',
+            rtl('סה"כ שנתי')
+        ])
+
+        table = Table(table_data, colWidths=[4*cm, 4*cm, 4*cm, 4*cm])
+
+        # Build style list with conditional formatting for savings column
+        style_commands = [
+            ('FONTNAME', (0, 0), (-1, -1), HEBREW_FONT),
+            ('FONTSIZE', (0, 0), (-1, -1), 11),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('TOPPADDING', (0, 0), (-1, -1), 8),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            # Header row
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4472C4')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            # Total row
+            ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#D9E2F3')),
+            ('FONTSIZE', (0, -1), (-1, -1), 12),
+        ]
+
+        # Color savings cells based on positive/negative
+        for i, row in enumerate(self.monthly_data.itertuples(), start=1):
+            if row.savings >= 0:
+                style_commands.append(('BACKGROUND', (0, i), (0, i), colors.HexColor('#C6EFCE')))
+            else:
+                style_commands.append(('BACKGROUND', (0, i), (0, i), colors.HexColor('#FFC7CE')))
+
+        # Color total savings
+        if total_savings >= 0:
+            style_commands.append(('BACKGROUND', (0, -1), (0, -1), colors.HexColor('#A9D08E')))
+        else:
+            style_commands.append(('BACKGROUND', (0, -1), (0, -1), colors.HexColor('#FF6B6B')))
+            style_commands.append(('TEXTCOLOR', (0, -1), (0, -1), colors.white))
+
+        table.setStyle(TableStyle(style_commands))
+        elements.append(table)
+
+        # Build PDF
+        doc.build(elements)
+        print(f"Yearly PDF report generated: {self.output_file}")
+
+        return self
+
+    def process(self):
+        """Run the full yearly report pipeline."""
+        return (self
+                .normalize_columns()
+                .parse_dates()
+                .calculate_monthly_summary()
+                .create_yearly_chart()
                 .generate_pdf())
 
 
