@@ -1174,6 +1174,101 @@ class YearlyReportGenerator:
         self.monthly_data = pd.DataFrame(monthly_data)
         return self
 
+    def calculate_half_month_summary(self):
+        """Calculate savings for half-month periods (16th to 15th of next month)."""
+        half_month_data = []
+
+        # Find the date range in the data
+        min_date = self.df['date'].min()
+        max_date = self.df['date'].max()
+
+        # Start from the 16th of the first month (or the month before if we have data before the 16th)
+        if min_date.day <= 15:
+            # Start from previous month's 16th
+            if min_date.month == 1:
+                start_year = min_date.year - 1
+                start_month = 12
+            else:
+                start_year = min_date.year
+                start_month = min_date.month - 1
+        else:
+            start_year = min_date.year
+            start_month = min_date.month
+
+        # End at the 15th that covers the max date
+        if max_date.day >= 16:
+            end_year = max_date.year
+            end_month = max_date.month
+        else:
+            # Max date is before 16th, so last period ends at current month's 15th
+            if max_date.month == 1:
+                end_year = max_date.year - 1
+                end_month = 12
+            else:
+                end_year = max_date.year
+                end_month = max_date.month - 1
+
+        current_year = start_year
+        current_month = start_month
+
+        while True:
+            # Period: 16th of current_month to 15th of next_month
+            period_start = pd.Timestamp(year=current_year, month=current_month, day=16)
+
+            # Calculate next month
+            if current_month == 12:
+                next_month = 1
+                next_year = current_year + 1
+            else:
+                next_month = current_month + 1
+                next_year = current_year
+
+            period_end = pd.Timestamp(year=next_year, month=next_month, day=15, hour=23, minute=59, second=59)
+
+            # Check if we've gone past the end
+            if (current_year > end_year) or (current_year == end_year and current_month > end_month):
+                break
+
+            # Filter transactions for this period
+            period_df = self.df[
+                (self.df['date'] >= period_start) &
+                (self.df['date'] <= period_end)
+            ]
+
+            if len(period_df) > 0:
+                income = period_df[period_df['amount'] > 0]['amount'].sum()
+                expenses = abs(period_df[period_df['amount'] < 0]['amount'].sum())
+            else:
+                income = 0
+                expenses = 0
+
+            savings = income - expenses
+
+            # Create label like "16/1 - 15/2"
+            period_label = f"16/{current_month} - 15/{next_month}"
+            # Short label for chart
+            short_label = f"{current_month}/{str(current_year)[2:]}-{next_month}/{str(next_year)[2:]}"
+
+            half_month_data.append({
+                'start_year': current_year,
+                'start_month': current_month,
+                'end_year': next_year,
+                'end_month': next_month,
+                'period_label': period_label,
+                'short_label': short_label,
+                'income': income,
+                'expenses': expenses,
+                'savings': savings,
+                'transaction_count': len(period_df)
+            })
+
+            # Move to next period
+            current_year = next_year
+            current_month = next_month
+
+        self.half_month_data = pd.DataFrame(half_month_data)
+        return self
+
     def create_yearly_chart(self):
         """Create bar chart showing monthly savings/loss."""
         if not HAS_MATPLOTLIB:
@@ -1248,6 +1343,79 @@ class YearlyReportGenerator:
 
         self.chart_path = '/tmp/yearly_chart.png'
         plt.savefig(self.chart_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+
+        return self
+
+    def create_half_month_chart(self):
+        """Create bar chart showing half-month (16th-15th) savings/loss."""
+        if not HAS_MATPLOTLIB or self.half_month_data is None or len(self.half_month_data) == 0:
+            self.half_month_chart_path = None
+            return self
+
+        # Set up Hebrew font
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        hebrew_font = None
+        font_paths = [
+            os.path.join(script_dir, 'fonts', 'Arial.ttf'),
+            os.path.join(script_dir, 'fonts', 'NotoSansHebrew-Regular.ttf'),
+            '/System/Library/Fonts/Supplemental/Arial Unicode.ttf',
+            '/System/Library/Fonts/ArialHB.ttc',
+        ]
+        for font_path in font_paths:
+            if os.path.exists(font_path):
+                try:
+                    hebrew_font = font_manager.FontProperties(fname=font_path)
+                    break
+                except:
+                    continue
+
+        # Adjust figure width based on number of periods
+        num_periods = len(self.half_month_data)
+        fig_width = max(14, num_periods * 1.2)
+        fig, ax = plt.subplots(figsize=(fig_width, 7))
+
+        periods = self.half_month_data['period_label'].values
+        savings = self.half_month_data['savings'].values
+
+        # Color bars based on positive/negative
+        colors_list = ['#2ecc71' if s >= 0 else '#e74c3c' for s in savings]
+
+        bars = ax.bar(periods, savings, color=colors_list, width=0.7, edgecolor='black', linewidth=0.5)
+
+        # Add value labels on bars
+        for bar, val in zip(bars, savings):
+            y_pos = bar.get_height()
+            offset = 200 if val >= 0 else -400
+            va = 'bottom' if val >= 0 else 'top'
+            ax.text(bar.get_x() + bar.get_width()/2, y_pos + offset,
+                    f'₪{val:,.0f}', ha='center', va=va, fontsize=8, fontweight='bold')
+
+        # Add horizontal line at 0
+        ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
+
+        # Labels and title
+        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=12,
+                     fontproperties=hebrew_font if hebrew_font else None)
+        ax.set_title(rtl('חיסכון חצי-חודשי (16 לחודש עד 15 לחודש הבא)'), fontsize=16, fontweight='bold',
+                    fontproperties=hebrew_font if hebrew_font else None)
+
+        # Rotate x-axis labels for better readability
+        plt.xticks(rotation=45, ha='right')
+
+        # Add total summary
+        total_savings = savings.sum()
+        savings_text = f'{rtl("סה״כ")}: ₪{total_savings:,.0f}'
+        color = '#2ecc71' if total_savings >= 0 else '#e74c3c'
+        ax.text(0.98, 0.95, savings_text, transform=ax.transAxes,
+               fontsize=14, fontweight='bold', ha='right', va='top', color=color,
+               fontproperties=hebrew_font if hebrew_font else None,
+               bbox=dict(boxstyle='round', facecolor='white', edgecolor=color, alpha=0.8))
+
+        plt.tight_layout()
+
+        self.half_month_chart_path = '/tmp/half_month_chart.png'
+        plt.savefig(self.half_month_chart_path, dpi=150, bbox_inches='tight', facecolor='white')
         plt.close()
 
         return self
@@ -1358,6 +1526,150 @@ class YearlyReportGenerator:
         table.setStyle(TableStyle(style_commands))
         elements.append(table)
 
+        # === HALF-MONTH SECTION ===
+        if self.half_month_data is not None and len(self.half_month_data) > 0:
+            elements.append(PageBreak())
+
+            # Half-month chart
+            if hasattr(self, 'half_month_chart_path') and self.half_month_chart_path and os.path.exists(self.half_month_chart_path):
+                elements.append(Image(self.half_month_chart_path, width=17*cm, height=8.5*cm))
+                elements.append(Spacer(1, 25))
+
+            # Half-month summary table
+            elements.append(Paragraph(rtl('סיכום חצי-חודשי (16 לחודש עד 15 לחודש הבא)'), subtitle_style))
+            elements.append(Spacer(1, 10))
+
+            half_table_data = [[rtl('חיסכון/הפסד'), rtl('הוצאות'), rtl('הכנסות'), rtl('תקופה')]]
+
+            for _, row in self.half_month_data.iterrows():
+                savings_str = f'₪{row["savings"]:,.0f}'
+                half_table_data.append([
+                    savings_str,
+                    f'₪{row["expenses"]:,.0f}',
+                    f'₪{row["income"]:,.0f}',
+                    row['period_label']
+                ])
+
+            # Add totals
+            half_total_income = self.half_month_data['income'].sum()
+            half_total_expenses = self.half_month_data['expenses'].sum()
+            half_total_savings = self.half_month_data['savings'].sum()
+
+            half_table_data.append([
+                f'₪{half_total_savings:,.0f}',
+                f'₪{half_total_expenses:,.0f}',
+                f'₪{half_total_income:,.0f}',
+                rtl('סה"כ')
+            ])
+
+            half_table = Table(half_table_data, colWidths=[4*cm, 4*cm, 4*cm, 4*cm])
+
+            # Build style list for half-month table
+            half_style_commands = [
+                ('FONTNAME', (0, 0), (-1, -1), HEBREW_FONT),
+                ('FONTSIZE', (0, 0), (-1, -1), 11),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('TOPPADDING', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+                # Header row - different color for half-month
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#7030A0')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('FONTSIZE', (0, 0), (-1, 0), 12),
+                # Total row
+                ('BACKGROUND', (0, -1), (-1, -1), colors.HexColor('#E2D5F0')),
+                ('FONTSIZE', (0, -1), (-1, -1), 12),
+            ]
+
+            # Color savings cells based on positive/negative
+            for i, row in enumerate(self.half_month_data.itertuples(), start=1):
+                if row.savings >= 0:
+                    half_style_commands.append(('BACKGROUND', (0, i), (0, i), colors.HexColor('#C6EFCE')))
+                else:
+                    half_style_commands.append(('BACKGROUND', (0, i), (0, i), colors.HexColor('#FFC7CE')))
+
+            # Color total savings
+            if half_total_savings >= 0:
+                half_style_commands.append(('BACKGROUND', (0, -1), (0, -1), colors.HexColor('#A9D08E')))
+            else:
+                half_style_commands.append(('BACKGROUND', (0, -1), (0, -1), colors.HexColor('#FF6B6B')))
+                half_style_commands.append(('TEXTCOLOR', (0, -1), (0, -1), colors.white))
+
+            half_table.setStyle(TableStyle(half_style_commands))
+            elements.append(half_table)
+            elements.append(Spacer(1, 30))
+
+            # === COMPARISON SECTION ===
+            elements.append(Paragraph(rtl('השוואה: חודשי מול חצי-חודשי'), subtitle_style))
+            elements.append(Spacer(1, 10))
+
+            diff_savings = total_savings - half_total_savings
+            diff_income = total_income - half_total_income
+            diff_expenses = total_expenses - half_total_expenses
+
+            comparison_data = [
+                [rtl('הפרש'), rtl('חצי-חודשי'), rtl('חודשי'), ''],
+                [f'₪{diff_income:,.0f}', f'₪{half_total_income:,.0f}', f'₪{total_income:,.0f}', rtl('הכנסות')],
+                [f'₪{diff_expenses:,.0f}', f'₪{half_total_expenses:,.0f}', f'₪{total_expenses:,.0f}', rtl('הוצאות')],
+                [f'₪{diff_savings:,.0f}', f'₪{half_total_savings:,.0f}', f'₪{total_savings:,.0f}', rtl('חיסכון')],
+            ]
+
+            comparison_table = Table(comparison_data, colWidths=[4*cm, 4*cm, 4*cm, 4*cm])
+
+            comparison_style = [
+                ('FONTNAME', (0, 0), (-1, -1), HEBREW_FONT),
+                ('FONTSIZE', (0, 0), (-1, -1), 12),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('TOPPADDING', (0, 0), (-1, -1), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+                # Header row
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#333333')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                # Monthly column header
+                ('BACKGROUND', (2, 0), (2, 0), colors.HexColor('#4472C4')),
+                # Half-monthly column header
+                ('BACKGROUND', (1, 0), (1, 0), colors.HexColor('#7030A0')),
+                # Row labels column
+                ('BACKGROUND', (3, 1), (3, 3), colors.HexColor('#F0F0F0')),
+                # Income row
+                ('BACKGROUND', (1, 1), (2, 1), colors.HexColor('#C6EFCE')),
+                # Expenses row
+                ('BACKGROUND', (1, 2), (2, 2), colors.HexColor('#FFC7CE')),
+            ]
+
+            # Color savings row based on values
+            if total_savings >= 0:
+                comparison_style.append(('BACKGROUND', (2, 3), (2, 3), colors.HexColor('#C6EFCE')))
+            else:
+                comparison_style.append(('BACKGROUND', (2, 3), (2, 3), colors.HexColor('#FFC7CE')))
+
+            if half_total_savings >= 0:
+                comparison_style.append(('BACKGROUND', (1, 3), (1, 3), colors.HexColor('#C6EFCE')))
+            else:
+                comparison_style.append(('BACKGROUND', (1, 3), (1, 3), colors.HexColor('#FFC7CE')))
+
+            # Color difference column
+            if diff_income >= 0:
+                comparison_style.append(('BACKGROUND', (0, 1), (0, 1), colors.HexColor('#C6EFCE')))
+            else:
+                comparison_style.append(('BACKGROUND', (0, 1), (0, 1), colors.HexColor('#FFC7CE')))
+
+            if diff_expenses >= 0:
+                comparison_style.append(('BACKGROUND', (0, 2), (0, 2), colors.HexColor('#FFC7CE')))
+            else:
+                comparison_style.append(('BACKGROUND', (0, 2), (0, 2), colors.HexColor('#C6EFCE')))
+
+            if diff_savings >= 0:
+                comparison_style.append(('BACKGROUND', (0, 3), (0, 3), colors.HexColor('#C6EFCE')))
+            else:
+                comparison_style.append(('BACKGROUND', (0, 3), (0, 3), colors.HexColor('#FFC7CE')))
+
+            comparison_table.setStyle(TableStyle(comparison_style))
+            elements.append(comparison_table)
+
         # Build PDF
         doc.build(elements)
         print(f"Yearly PDF report generated: {self.output_file}")
@@ -1370,7 +1682,9 @@ class YearlyReportGenerator:
                 .normalize_columns()
                 .parse_dates()
                 .calculate_monthly_summary()
+                .calculate_half_month_summary()
                 .create_yearly_chart()
+                .create_half_month_chart()
                 .generate_pdf())
 
 
