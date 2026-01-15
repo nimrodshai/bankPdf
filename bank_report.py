@@ -539,6 +539,11 @@ def parse_pdf_bank_statement_text(file_path):
                     'balance': balance
                 })
 
+    print(f"DEBUG: Extracted {len(raw_transactions)} raw transactions from PDF")
+    if raw_transactions:
+        dates = [t['date'] for t in raw_transactions]
+        print(f"DEBUG: Date range in PDF: {min(dates)} to {max(dates)}")
+
     # Bank Hapoalim PDFs typically show newest first, so reverse to get chronological order
     raw_transactions.reverse()
 

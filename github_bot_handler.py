@@ -278,6 +278,11 @@ def handle_report(chat_id: int):
             # Merge all dataframes
             merged_df = pd.concat(all_dataframes, ignore_index=True)
 
+            # Debug: show date range in merged data
+            if 'date' in merged_df.columns:
+                print(f"DEBUG: Total {len(merged_df)} transactions in merged data")
+                print(f"DEBUG: Date range: {merged_df['date'].min()} to {merged_df['date'].max()}")
+
             # Generate yearly PDF with monthly savings chart
             output_path = os.path.join(temp_dir, 'bank_report.pdf')
 
