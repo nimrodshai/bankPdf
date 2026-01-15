@@ -1112,7 +1112,7 @@ class YearlyReportGenerator:
         return self
 
     def calculate_monthly_summary(self):
-        """Calculate monthly savings (income - expenses) for all months in the data."""
+        """Calculate monthly savings (income - expenses) for complete months only."""
         monthly_data = []
 
         # Find the date range in the data
@@ -1122,11 +1122,22 @@ class YearlyReportGenerator:
         # Create date range string for title
         self.date_range_str = f"{HEBREW_MONTHS[min_date.month]} {min_date.year} - {HEBREW_MONTHS[max_date.month]} {max_date.year}"
 
-        # Generate list of all year-month combinations in range
-        current = pd.Timestamp(year=min_date.year, month=min_date.month, day=1)
-        end = pd.Timestamp(year=max_date.year, month=max_date.month, day=1)
+        # Start from the first complete month (1st of month >= min_date)
+        if min_date.day == 1:
+            start_year = min_date.year
+            start_month = min_date.month
+        else:
+            # Start from next month
+            if min_date.month == 12:
+                start_year = min_date.year + 1
+                start_month = 1
+            else:
+                start_year = min_date.year
+                start_month = min_date.month + 1
 
-        while current <= end:
+        current = pd.Timestamp(year=start_year, month=start_month, day=1)
+
+        while True:
             year = current.year
             month = current.month
 
@@ -1136,6 +1147,18 @@ class YearlyReportGenerator:
             # Filter transactions for this month
             start_date = pd.Timestamp(year=year, month=month, day=1)
             end_date = pd.Timestamp(year=year, month=month, day=last_day, hour=23, minute=59, second=59)
+
+            # Only include complete months (where we have data for the full range)
+            if start_date < min_date or end_date > max_date:
+                # Move to next month
+                if month == 12:
+                    current = pd.Timestamp(year=year + 1, month=1, day=1)
+                else:
+                    current = pd.Timestamp(year=year, month=month + 1, day=1)
+                # Stop if we've gone past max_date
+                if start_date > max_date:
+                    break
+                continue
 
             month_df = self.df[
                 (self.df['date'] >= start_date) &
@@ -1175,38 +1198,26 @@ class YearlyReportGenerator:
         return self
 
     def calculate_half_month_summary(self):
-        """Calculate savings for half-month periods (16th to 15th of next month)."""
+        """Calculate savings for half-month periods (16th to 15th of next month).
+        Only includes complete periods where we have data for the full range."""
         half_month_data = []
 
         # Find the date range in the data
         min_date = self.df['date'].min()
         max_date = self.df['date'].max()
 
-        # Start from the 16th of the first month (or the month before if we have data before the 16th)
-        if min_date.day <= 15:
-            # Start from previous month's 16th
-            if min_date.month == 1:
-                start_year = min_date.year - 1
-                start_month = 12
-            else:
-                start_year = min_date.year
-                start_month = min_date.month - 1
-        else:
+        # Start from the first 16th that is >= min_date
+        if min_date.day <= 16:
             start_year = min_date.year
             start_month = min_date.month
-
-        # End at the 15th that covers the max date
-        if max_date.day >= 16:
-            end_year = max_date.year
-            end_month = max_date.month
         else:
-            # Max date is before 16th, so last period ends at current month's 15th
-            if max_date.month == 1:
-                end_year = max_date.year - 1
-                end_month = 12
+            # Start from next month's 16th
+            if min_date.month == 12:
+                start_year = min_date.year + 1
+                start_month = 1
             else:
-                end_year = max_date.year
-                end_month = max_date.month - 1
+                start_year = min_date.year
+                start_month = min_date.month + 1
 
         current_year = start_year
         current_month = start_month
@@ -1225,9 +1236,16 @@ class YearlyReportGenerator:
 
             period_end = pd.Timestamp(year=next_year, month=next_month, day=15, hour=23, minute=59, second=59)
 
-            # Check if we've gone past the end
-            if (current_year > end_year) or (current_year == end_year and current_month > end_month):
-                break
+            # Only include complete periods (where we have data for the full range)
+            # Skip if period starts before our data or ends after our data
+            if period_start < min_date or period_end > max_date:
+                # Move to next period and check if we should stop
+                current_year = next_year
+                current_month = next_month
+                # Stop if we've gone too far past max_date
+                if period_start > max_date:
+                    break
+                continue
 
             # Filter transactions for this period
             period_df = self.df[
@@ -1244,8 +1262,8 @@ class YearlyReportGenerator:
 
             savings = income - expenses
 
-            # Create label like "16/1 - 15/2"
-            period_label = f"16/{current_month} - 15/{next_month}"
+            # Create label like "16/1/25 - 15/2/25"
+            period_label = f"16/{current_month}/{str(current_year)[2:]} - 15/{next_month}/{str(next_year)[2:]}"
             # Short label for chart
             short_label = f"{current_month}/{str(current_year)[2:]}-{next_month}/{str(next_year)[2:]}"
 
@@ -1311,16 +1329,18 @@ class YearlyReportGenerator:
             offset = 200 if val >= 0 else -400
             va = 'bottom' if val >= 0 else 'top'
             ax.text(bar.get_x() + bar.get_width()/2, y_pos + offset,
-                    f'₪{val:,.0f}', ha='center', va=va, fontsize=13, fontweight='bold')
+                    f'₪{val:,.0f}', ha='center', va=va, fontsize=18, fontweight='bold')
 
         # Add horizontal line at 0
         ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
 
         # Labels and title
-        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=16,
+        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=20,
                      fontproperties=hebrew_font if hebrew_font else None)
-        ax.set_title(rtl(f'חיסכון חודשי - {self.date_range_str}'), fontsize=22, fontweight='bold',
-                    fontproperties=hebrew_font if hebrew_font else None)
+
+        # Title above the graph
+        fig.suptitle(rtl(f'חיסכון חודשי - {self.date_range_str}'), fontsize=36, fontweight='bold',
+                    fontproperties=hebrew_font if hebrew_font else None, y=0.98)
 
         # Set Hebrew font for x-axis labels
         if hebrew_font:
@@ -1328,14 +1348,15 @@ class YearlyReportGenerator:
                 label.set_fontproperties(hebrew_font)
 
         # Rotate x-axis labels for better readability
-        plt.xticks(rotation=45, ha='right', fontsize=12)
+        plt.xticks(rotation=45, ha='right', fontsize=14)
+        plt.yticks(fontsize=14)
 
         # Add total summary
         total_savings = savings.sum()
         savings_text = f'{rtl("סה״כ")}: ₪{total_savings:,.0f}'
         color = '#2ecc71' if total_savings >= 0 else '#e74c3c'
         ax.text(0.98, 0.95, savings_text, transform=ax.transAxes,
-               fontsize=18, fontweight='bold', ha='right', va='top', color=color,
+               fontsize=24, fontweight='bold', ha='right', va='top', color=color,
                fontproperties=hebrew_font if hebrew_font else None,
                bbox=dict(boxstyle='round', facecolor='white', edgecolor=color, alpha=0.8))
 
@@ -1389,26 +1410,29 @@ class YearlyReportGenerator:
             offset = 200 if val >= 0 else -400
             va = 'bottom' if val >= 0 else 'top'
             ax.text(bar.get_x() + bar.get_width()/2, y_pos + offset,
-                    f'₪{val:,.0f}', ha='center', va=va, fontsize=13, fontweight='bold')
+                    f'₪{val:,.0f}', ha='center', va=va, fontsize=18, fontweight='bold')
 
         # Add horizontal line at 0
         ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
 
         # Labels and title
-        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=16,
+        ax.set_ylabel(rtl('חיסכון/הפסד (₪)'), fontsize=20,
                      fontproperties=hebrew_font if hebrew_font else None)
-        ax.set_title(rtl('חיסכון חצי-חודשי (16 לחודש עד 15 לחודש הבא)'), fontsize=22, fontweight='bold',
-                    fontproperties=hebrew_font if hebrew_font else None)
+
+        # Title above the graph
+        fig.suptitle(rtl('חיסכון חצי-חודשי (16 לחודש עד 15 לחודש הבא)'), fontsize=36, fontweight='bold',
+                    fontproperties=hebrew_font if hebrew_font else None, y=0.98)
 
         # Rotate x-axis labels for better readability
-        plt.xticks(rotation=45, ha='right', fontsize=12)
+        plt.xticks(rotation=45, ha='right', fontsize=14)
+        plt.yticks(fontsize=14)
 
         # Add total summary
         total_savings = savings.sum()
         savings_text = f'{rtl("סה״כ")}: ₪{total_savings:,.0f}'
         color = '#2ecc71' if total_savings >= 0 else '#e74c3c'
         ax.text(0.98, 0.95, savings_text, transform=ax.transAxes,
-               fontsize=18, fontweight='bold', ha='right', va='top', color=color,
+               fontsize=24, fontweight='bold', ha='right', va='top', color=color,
                fontproperties=hebrew_font if hebrew_font else None,
                bbox=dict(boxstyle='round', facecolor='white', edgecolor=color, alpha=0.8))
 
@@ -1461,10 +1485,6 @@ class YearlyReportGenerator:
         if self.chart_path and os.path.exists(self.chart_path):
             elements.append(Image(self.chart_path, width=17*cm, height=8.5*cm))
             elements.append(Spacer(1, 25))
-
-        # Monthly summary table
-        elements.append(Paragraph(rtl('סיכום חודשי'), subtitle_style))
-        elements.append(Spacer(1, 10))
 
         table_data = [[rtl('חיסכון/הפסד'), rtl('הוצאות'), rtl('הכנסות'), rtl('חודש')]]
 
@@ -1534,10 +1554,6 @@ class YearlyReportGenerator:
             if hasattr(self, 'half_month_chart_path') and self.half_month_chart_path and os.path.exists(self.half_month_chart_path):
                 elements.append(Image(self.half_month_chart_path, width=17*cm, height=8.5*cm))
                 elements.append(Spacer(1, 25))
-
-            # Half-month summary table
-            elements.append(Paragraph(rtl('סיכום חצי-חודשי (16 לחודש עד 15 לחודש הבא)'), subtitle_style))
-            elements.append(Spacer(1, 10))
 
             half_table_data = [[rtl('חיסכון/הפסד'), rtl('הוצאות'), rtl('הכנסות'), rtl('תקופה')]]
 
